@@ -1,0 +1,114 @@
+---
+title: "Technical report"
+author: "Ramon Rotaeche"
+date: "27/5/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Análisis descriptivo de la serie
+
+El dataset contiene 1463 puntos con los tres campos siguientes: 
+
+* 'Series', de tipo alfanumérico con el literal `Potència activa`
+* 'Time', marca de tiempo (*timestamp*) conforme con el formato XXXX de la RFC9999
+* 'Value', numérico entero positivo. Representa la **potencia activa** acumulada en el período de muestreo. Unidades: VA.
+
+veamos la representación gráfica de la serie:
+
+```{r, fig.height = 6, fig.width = 12, fig.align = "center"}
+serie <- read.csv(file = 'data/potencia.csv', sep = ';')
+t <- as.POSIXlt(serie$Time, format = "%Y-%m-%dT%H:%M:%S")
+VA <- as.numeric(serie$Value)
+plot(t, VA, type="l",main = "Potencia activa acumulada 12 horas", col="blue", xaxt="n", yaxt="n")
+axis.POSIXct(1,at=seq(min(t), max(t), by="months"), format="%b-%y")
+yticks <- seq(min(VA), max(VA), length.out=10)
+axis(2, at=yticks, labels=formatC(yticks, format="e", digits = 1))
+```
+
+## Estacionalidad
+
+Observamos tres fenómenos estacionales diferentes, que se diferencian por el periodo de cada uno. 
+
+### Estacionalidad intra-día
+
+Disponemos de dos puntos para cada día:
+
+* **Mañana**: corresponde a la potencia acumulada desde la 1 ó 2 AM (depende del momento del año), hasta las 1 ó 2 PM
+* **Tarde**: corresponde a la potencia acumulada desde la 1 ó 2 PM (depende del momento del año), hasta la 1 ó 2 AM
+
+Como se observa en el gráfico a continuación, el **consumo es consistentemente mayor en el periodo de tarde**. Posibles explicaciones para este fenómeno son:
+
+* El periodo de tarde comprende más horas de clase (si entendemos que puede haber clase entre las 9.00 y las 21.00), que es cuando más alumnos hay y por tanto cuando hay un mayor uso de las instalaciones.
+
+* Algunas instalaciones tienen un uso más intensivo a partir de la 1pm / 2pm. Por ejemplo la iluminación en invierno y el A/C en verano (porque las horas de la mañana son más frescas). También la cafetería (que puede que sea responsable de una buena parte del consumo por los electrodomésticos para cocinar, y lavar vajillas).
+
+
+```{r, fig.height = 6, fig.width = 12, fig.align = "center"}
+tarde <- t$hour < 3
+manana <- tarde == F
+plot(t[tarde], VA[tarde], type="l",main = "Potencia activa acumulada 12 horas", col="blue", xaxt="n", yaxt="n", 
+     ylab="VA", xlab="t")
+lines(t[manana], VA[manana],col="green")
+axis.POSIXct(1,at=seq(min(t), max(t), by="months"), format="%b-%y")
+yticks <- seq(min(VA), max(VA), length.out=10)
+axis(2, at=yticks, labels=formatC(yticks, format="e", digits = 1))
+legend("topright", legend=c("Tarde", "Mañana"), lty=1, col=c("blue", "green"))
+```
+### Estacionalidad intra-semana
+
+Como era de esperar, hay una **diferencia bastante grande entre el consumo durante los días de semana y fin de semana**. 
+
+embargo, como se puede ver en los gráficos a continuaciónn, esta diferencia **solo se observa en el periodo de tarde**. Creemos que esto es así porque, como decíamos en el apartado anterior, la mayor parte de las horas de clase están incluidas en el periodo de tarde. Y además es en este periodo donde se usan más intensivamente algunas instalaciones (ej. iluminación). Por tanto, el efecto de la ausencia de alumnos durante fin de semana se nota más en el periodo de tarde. 
+
+* Mañana: corresponde a la potencia acumulada desde la 1 ó 2 AM (depende del momento del año), hasta las 1 ó 2 PM
+* Tarde: corresponde a la potencia acumulada desde la 1 ó 2 PM (depende del momento del año), hasta la 1 ó 2 AM
+
+Como se observa en el gráfico a continuación, el consumo es consistentemente mayor en el periodo de tarde. Posibles explicaciones para este fenómeno son:
+
+* El periodo de tarde comprende más horas de clase (si entendemos que puede haber clase entre las 9.00 y las 21.00), que es cuando más alumnos hay y por tanto cuando hay un mayor uso de las instalaciones.
+* Algunas instalaciones tienen un uso más intensivo a partir de la 1pm / 2pm. Por ejemplo la iluminación en invierno y el A/C en verano (porque las horas de la mañana son más frescas). También la cafetería (que puede que sea responsable de una buena parte del consumo por los electrodomésticos para cocinar, y lavar vajillas)
+
+Veamos la diferencia entre semana y fin de semana en el periodo de tarde:
+
+```{r, fig.height = 6, fig.width = 12, fig.align = "center"}
+weekend <- t$wday %in% c(0,6)
+weekday <- weekend == F
+plot(t[tarde & weekday], VA[tarde & weekday], type="l",main = "Potencia activa acumulada de 1PM a 1AM", col="blue", xaxt="n", yaxt="n", 
+     ylab="VA", xlab="t")
+lines(t[tarde & weekend], VA[tarde & weekend],col="green")
+axis.POSIXct(1,at=seq(min(t), max(t), by="months"), format="%b-%y")
+yticks <- seq(min(VA), max(VA), length.out=10)
+axis(2, at=yticks, labels=formatC(yticks, format="e", digits = 1))
+legend("topright", legend=c("Semana", "Fin de semana"), lty=1, col=c("blue", "green"))
+```
+
+Y en el periodo de mañana:
+
+```{r, fig.height = 6, fig.width = 12, fig.align = "center"}
+plot(t[manana & weekday], VA[manana & weekday], type="l",main = "Potencia activa acumulada 12 horas de 1AM a 1PM", col="blue", xaxt="n", yaxt="n", 
+     ylab="VA", xlab="t")
+lines(t[manana & weekend], VA[manana & weekend],col="green")
+axis.POSIXct(1,at=seq(min(t), max(t), by="months"), format="%b-%y")
+yticks <- seq(min(VA), max(VA), length.out=10)
+axis(2, at=yticks, labels=formatC(yticks, format="e", digits = 1))
+legend("topright", legend=c("Semana", "Fin de semana"), lty=1, col=c("blue", "green"))
+```
+En el periodo de mañana, no hay mucha diferencia. posiblemente por las razones comentadas arriba.
+
+Además, como se ve en el gráfico de abajo, en el periodo de tarde, aunque hay una clara diferencia entre semana y fin de semana, ambos consumos evolucionan a la par durante el año (excepto en el periodo pandemia). Por lo que hay **un ratio más o menos constante entre el consumo en fin de semana y en semana** (en el caso del periodo de mañana ese ratio es ~1).
+
+```{r}
+semanas <- t[tarde & weekend][seq(1,length(t[manana & weekend]),2)]
+tarde_semana_sum <- unname(tapply(VA[tarde & weekday], (seq_along(VA[tarde & weekday])-1) %/% 5, sum)) # 105 elementos
+tarde_finde_sum <- unname(tapply(VA[tarde & weekend], (seq_along(VA[tarde & weekend])-1) %/% 2, sum)) # 104 elementos
+plot(semanas, tarde_semana_sum[-1]/tarde_semana_sum[1], type="l",main = "Potencia activa acumulada relativa a inicio de la serie", col="blue", xaxt="n", ylab="1 = Consumo al inicio de abril 2019", xlab="t")
+lines(semanas, tarde_finde_sum / tarde_finde_sum[1],col="green")
+axis.POSIXct(1,at=seq(min(semanas), max(semanas), by="months"), format="%b-%y")
+legend("topright", legend=c("Semana tarde", "Fin de semana tarde"), lty=1, col=c("blue", "green"))
+```
+
+### Estacionalidad intra-año
