@@ -29,8 +29,10 @@ y representar gráficamente la serie:
 #Sys.setlocale("LC_TIME", "es_ES.UTF-8")
 # Es un csv
 serie <- read.csv(file = 'data/potencia.csv', sep = ';')
-# La marca de tiempo está en hora legal española
+# La marca de tiempo está en hora legal española, así que 
+# siguiendo las buenas prácticas, la convertimos a UTC
 t <- as.POSIXct(serie$Time, format = "%Y-%m-%dT%H:%M:%S", tz = "Europe/Madrid")
+t <- as.POSIXlt(t, format = "%Y-%m-%dT%H:%M:%S", tz = "GMT")
 # También construimos un vector con los valores de potencia activa acumulada
 VA <- as.numeric(serie$Value)
 # Finalmente un dibujo para comprender mejor la serie
@@ -51,11 +53,12 @@ min(t); max(t);
 
 Vemos que deberíamos tener dos años completos de datos. Es decir (365 + 366 + 1)x2 = 1464 valores en la serie. Sin embargo, tenemos 1463, es decir nos falta un dato.
 
-Después de un análisis más profundo vemos que el dato que falta corresponde a la tarde del domingo del 10-06-2020. Creamos ese valor y le damos el mismo valor de VA que la tarde del día anterior (que es sábado). Usamos ahora el dataset corregido
+Después de un análisis más profundo vemos que el dato que falta corresponde a la tarde del domingo del 07-06-2020. Creamos ese valor y le damos el mismo valor de VA que la tarde del día anterior (que es sábado). Usamos ahora el *dataset* corregido
 
 ```{r}
 serie <- read.csv(file = 'data/potencia_corr.csv', sep = ';')
-t <- as.POSIXlt(serie$Time, format = "%Y-%m-%dT%H:%M:%S")
+t <- as.POSIXct(serie$Time, format = "%Y-%m-%dT%H:%M:%S", tz = "Europe/Madrid")
+t <- as.POSIXlt(t, format = "%Y-%m-%dT%H:%M:%S", tz = "GMT")
 VA <- as.numeric(serie$Value)
 ```
 
@@ -66,10 +69,11 @@ Observamos tres fenómenos estacionales diferentes, que se diferencian por el pe
 
 ### Estacionalidad intra-día
 
-Disponemos de dos puntos para cada día:
+Disponemos de dos puntos para cada día, que se dividen en dos períodos de 12 horas:
 
-* **Mañana**: corresponde a la potencia acumulada desde la 1 ó 2 AM (depende del momento del año), hasta las 1 ó 2 PM
-* **Tarde**: corresponde a la potencia acumulada desde la 1 ó 2 PM (depende del momento del año), hasta la 1 ó 2 AM
+* **Mañana**: corresponde a la potencia acumulada desde las 1 ó 2 AM (hora legal península y *Illes Balears*), hasta las 1 ó 2 PM (es decir desde las 00:00h a las 12:00h UTC)
+
+* **Tarde**: corresponde a la potencia acumulada desde la 1 ó 2 PM (hora legal), hasta la 1 ó 2 AM (el período de tiempo complementario al anterior)
 
 Como se observa en el gráfico a continuación, el **consumo es consistentemente mayor en el periodo de tarde**. Posibles explicaciones para este fenómeno son:
 
@@ -82,13 +86,13 @@ Como se observa en el gráfico a continuación, el **consumo es consistentemente
 # Convertimos a UTC para filtrar las lecturas
 # Y construimos dos vectores auxiliares para distinguir 
 # los consumos de mañana y tarde
-tarde <- as.POSIXlt(t, tz = "GMT")$hour == 0
+tarde <- t$hour == 0 # 00h UTC
 manana <- tarde == F
 # Otra representación de ambos consumos nos puede ayudar
 plot(t[tarde], VA[tarde], type="l", 
      main = "Potencia activa acumulada 12 horas [kVA]", 
      col="blue", xaxt="n", yaxt="n", 
-     ylab="VA", xlab="t")
+     ylab="", xlab="")
 lines(t[manana], VA[manana],col="green")
 axis.POSIXct(side = 1, at = seq(min(t), max(t), by = "months"), format = "%b-%y", las = 1)
 yticks <- seq(min(VA), max(VA), length.out=10)
@@ -102,18 +106,20 @@ Como era de esperar, hay una **diferencia bastante grande entre el consumo duran
 
 Sin embargo, como se puede ver en los gráficos a continuación, esta diferencia **solo se observa en el periodo de tarde**. Creemos que esto es así porque, como decíamos en el apartado anterior, la mayor parte de las horas de clase están incluidas en el periodo de tarde. Y además es en este periodo donde se usan más intensivamente algunas instalaciones (ej. iluminación). Por tanto, el efecto de la ausencia de alumnos durante fin de semana se nota más en el periodo de tarde. 
 
-* Mañana: corresponde a la potencia acumulada desde la 1 ó 2 AM (depende del momento del año), hasta las 1 ó 2 PM
-* Tarde: corresponde a la potencia acumulada desde la 1 ó 2 PM (depende del momento del año), hasta la 1 ó 2 AM
+* Mañana: corresponde a la potencia acumulada desde la 1 ó 2 AM (depende del momento del año), hasta las 1 ó 2 PM (0h-12h UTC)
+
+* Tarde: corresponde a la potencia acumulada desde la 1 ó 2 PM (depende del momento del año), hasta la 1 ó 2 AM (12h-24h UTC)
 
 Como se observa en el gráfico a continuación, el consumo es consistentemente mayor en el periodo de tarde. Posibles explicaciones para este fenómeno son:
 
-* El periodo de tarde comprende más horas de clase (si entendemos que puede haber clase entre las 9.00 y las 21.00), que es cuando más alumnos hay y por tanto cuando hay un mayor uso de las instalaciones.
+* El periodo de tarde comprende más horas de clase (si entendemos que puede haber clase entre las 9.00 y las 21.00), que es cuando más alumnos hay y por tanto cuando hay un mayor uso de las instalaciones
+
 * Algunas instalaciones tienen un uso más intensivo a partir de la 1pm / 2pm. Por ejemplo la iluminación en invierno y el A/C en verano (porque las horas de la mañana son más frescas). También la cafetería (que puede que sea responsable de una buena parte del consumo por los electrodomésticos para cocinar, y lavar vajillas)
 
 Veamos la diferencia entre semana y fin de semana en el periodo de tarde:
 
 ```{r, fig.height = 6, fig.width = 12, fig.align = "center"}
-weekend <- as.POSIXlt(t, tz = "GMT")$wday %in% c(0, 6)
+weekend <- t$wday %in% c(0, 6)
 weekday <- weekend == F
 plot(t[tarde & weekday], VA[tarde & weekday], type="l", 
      main = "Potencia activa acumulada de 1PM a 1AM [kVA]", 
