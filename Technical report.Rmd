@@ -268,6 +268,43 @@ Los coeficientes $\beta_{i}$ se podrían calcular ajustando otro modelo o simple
 
 ## Test
 
+Como periodo de test cogemos los meses de enero - febrero 2021, que son dos meses que no hemos usado para crear el modelo, qye se corresponden con un ciclo BAU (aunque como decíamos antes, esta última afirmación no tenemos datos suficientes para asegurarla).
+
+
+```{r}
+t <- as.POSIXlt(serie$Time, format = "%Y-%m-%dT%H:%M:%S")
+VA_BAU_test = VA[t$year == 121 & (t$mon <= 1)]
+VA_BAU_test = VA_BAU_test[1:112]
+VA_BAU_test_avg<-filter(VA_BAU_test,filter=rep(1/14,14), circular = TRUE)
+
+idx = length(VA_BAU_test)
+t_BAU_test = t[t$year == 121 & (t$mon <= 1)]
+t_BAU_test = t_BAU_test[1:112]
+
+t = rep(c(1:(idx/2)),each=2)
+t2=t^2;t3=t^3;t4=t^4;t5=t^5;t6=t^6;t8=t^8;t10=t^10;t12=t^12;t14=t^14;t16=t^16
+m1_dummy_avg = m1_dummy_avg[1:idx]
+m3_dummy_avg = m3_dummy_avg[1:idx]
+m5_dummy_avg = m5_dummy_avg[1:idx]
+m7_dummy_avg = m7_dummy_avg[1:idx]
+m9_dummy_avg = m9_dummy_avg[1:idx]
+m11_dummy_avg = m11_dummy_avg[1:idx]
+vacaciones_dummy_avg = vacaciones_dummy_avg[1:idx]
+testdata = data.frame(t,t2,t3,t4,t5,t6,t8,t10,t12,t14,t16,vacaciones_dummy_avg,m1_dummy_avg,m3_dummy_avg,m5_dummy_avg,
+                      m7_dummy_avg,m9_dummy_avg,m11_dummy_avg)
+VA_BAU_test_pred = predict(quadraticmodel,testdata)
+day_month = as.Date(t, origin = "2020/12/31") # El año nos da igual
+plot(day_month,VA_BAU_test_pred,type="l",col="blue",ylim=c(min(VA_BAU_test_pred),max(VA_BAU_test_avg)))
+lines(day_month,VA_BAU_test_avg,col="red")
+legend("topright", legend=c("Actual", "Predicted"), lty=1, col=c("red", "blue"))
+```
+Veamos el error. Usamos los errores absolutos (en porcentajey en desviación absoluta) porque nos parecen más interpretables que los cuadrados.
+
+```{r}
+sum(abs((VA_BAU_test_pred-VA_BAU_test_avg)/VA_BAU_test_avg))/idx*100 #MAPE
+sum(abs((VA_BAU_test_pred-VA_BAU_test_avg)))/idx*100 #MADE
+```
+La desviación media es del 5.8%. No está mal!
 
 
 
