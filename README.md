@@ -12,14 +12,14 @@ Una única serie contenida en un fichero *csv* con estas características:
 
 ### Descripción de los campos
 
-A continuación describimos los tres campos que componen la serie: 
+A continuación describimos sucintamente los tres campos que componen la serie: 
 
 - Campo 1: 
   - Nombre: 'Series'
   - Tipo: alfanumérico con el literal `Potència activa`
 - Campo 2:
   - Nombre: 'Time'
-  - Tipo: marca de tiempo (*timestamp*) conforme con el formato XXXX de la RFC9999
+  - Tipo: marca de tiempo (*timestamp*) conforme a la especificación descrita en la RFC3339
 - Campo 3:
   - Nombre: 'Value'
   - Tipo: numérico entero positivo
