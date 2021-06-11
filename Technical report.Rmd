@@ -43,17 +43,31 @@ yticks <- seq(min(VA), max(VA), length.out = 10)
 axis(side = 2, at = yticks, labels = formatC(yticks / 1000, format = "f", digits = 1), las = 2)
 ```
 
-## Completitud de la serie
+## Coherencia de la serie
 
-En primer lugar, para asegurar que los siguientes análisis funcionan. Si miramos el máximo y mínimo de la serie:
+Para asegurar que los siguientes análisis funcionan 
+efectuaremos una comprobación de integridad de los datos.
+
+En primer lugar conviene saber si tenemos todas las muestras, 
+pues la falta de alguna puede arrojar resultados extraños. 
+En caso de que faltasen algunas de forma diseminada, las podríamos completar 
+interpolando con las vecinas que fueran de la misma hora por ejemplo. 
+Veamos que valen la primera y la última marca temporal de la serie, 
+así como el número de muestras:
 
 ```{r}
-min(t); max(t);
+min(t); max(t); length(t)
 ```
 
-Vemos que deberíamos tener dos años completos de datos. Es decir (365 + 366 + 1)x2 = 1464 valores en la serie. Sin embargo, tenemos 1463, es decir nos falta un dato.
+Vemos que deberíamos tener dos años completos de datos. 
+Es decir (365 + 366 + 1)x2 = 1464 valores en la serie. 
+Sin embargo, tenemos 1463, es decir nos falta un dato.
 
-Después de un análisis más profundo vemos que el dato que falta corresponde a la tarde del domingo del 07-06-2020. Creamos ese valor y le damos el mismo valor de VA que la tarde del día anterior (que es sábado). Usamos ahora el *dataset* corregido
+Después de un análisis más profundo vemos que el dato 
+que falta corresponde a la tarde del domingo del 07-06-2020. 
+Creamos ese valor y le damos el mismo valor de VA 
+que la tarde del día anterior (que es sábado). 
+Usamos ahora el *dataset* corregido
 
 ```{r}
 serie <- read.csv(file = 'data/potencia_corr.csv', sep = ';')
@@ -62,6 +76,107 @@ t <- as.POSIXlt(t, format = "%Y-%m-%dT%H:%M:%S", tz = "GMT")
 VA <- as.numeric(serie$Value)
 ```
 
+Ahora que tenemos el eje temporal completo, repasaremos la coherencia 
+de los valores VA de la serie. 
+En principio, un examen de la gráfica del punto anterior nos permite observar 
+que todos los valores están en el intervalo de 581 kVA a 3027 kVA 
+y que por lo tanto no hay valores negativos, que serían a todas 
+luces imposibles. 
+Aún así lo podemos certificar con un sencillo comando de *R*: 
+
+```{r}
+# Cual es el intervalo de VA?
+c(min(VA), max(VA))
+```
+
+También debemos comprobar la no existencia de puntos atípicos (*outliers*):
+
+```{r}
+# Veamos cuales son los cuartiles
+quar <- quantile(VA)
+# Calculamos la amplitud entre el segundo y cuarto (25% y 75%)
+upperq = quar[4]
+lowerq = quar[2]
+iqam = upperq - lowerq
+# Será nuestra referencia para calcular los límites *razonables*
+# Un criterio común es tolerar un +150% del valor inter-cuartil 25%-75%
+upperbound = upperq + (1.5 * iqam)
+lowerbound = max(lowerq - (1.5 * iqam), 0)
+result <- which(VA > upperbound | VA < lowerbound)
+print(result)
+```
+
+Tenemos un solo punto atípico a corregir. 
+Seguramente no distorsione el resultado, pues se trata de un solo valor: 
+
+```{r}
+print(cbind(result, VA[result]))
+```
+
+Aún así y a fin de reforzar la teoría aprendida, 
+le aplicaremos una técnica de suavizado muy sencilla 
+que consistirá en sustituir su valor 
+por el promedio de sus vecinos. 
+Debido a que tenemos lecturas alternas correspondientes a 
+mediodía y medianoche, tiene sentido considerar que sus vecinos son 
+la muestra antecesora de la antecesora 
+(i.e. anterior en dos unidades) 
+y la sucesora de la sucesora 
+(es decir la posterior en dos unidades). 
+Esto lo haremos con el siguiente 
+código que hemos diseñado para un caso más general 
+en el que pudiesen existir muchos puntos a suavizar: 
+
+```{r}
+if(length(result) > 0) {
+  # poblaremos una matriz de n filas y 3 columnas
+  # columna 1: índice del vecino a su izquierda 
+  # columna 2: índice de la muestra a reemplazar (*outlier*)
+  # columna 3: índice del vecino a su derecha
+  neighbours <- array(NA, dim = c(length(result), 3))
+  j = 1
+  for(i in result) {
+    neighbours[j, 1] = i - 2
+    neighbours[j, 2] = i
+    neighbours[j, 3] = i + 2
+    j = j + 1
+  }
+  # Vigilamos que el primer vecino no se salga del índice
+  if(neighbours[1, 1] < 1) 
+    neighbours[1, 1] = 1
+  # Vigilamos que el último vecino tampoco no se salga del índice
+  if(neighbours[nrow(neighbours), 3] > length(VA)) 
+    neighbours[nrow(neighbours), 3] = length(VA)
+  print(neighbours)
+}
+```
+
+Veamos como ha quedado la matriz con las posiciones a 
+suavizar y los vecinos. 
+
+```{r}
+if(nrow(neighbours) > 0) {
+  print(array(VA[neighbours], dim = c(nrow(neighbours), 3)))
+  }
+```
+
+Ejecutamos ahora la sustitución: 
+
+```{r}
+if(nrow(neighbours) > 0) {
+  for(i in 1:nrow(neighbours)) {
+    # Hacemos la media de las dos lecturas 
+    # usando la división entera, porque la serie 
+    # no tiene valores decimales
+    VA[neighbours[2]] = (VA[neighbours[1]] + VA[neighbours[3]]) %/% 2 
+  }
+  print(array(VA[neighbours], dim = c(nrow(neighbours), 3)))
+}
+```
+
+Con este método hemos eliminado los puntos atípicos (*outliers*) 
+de nuestra serie. 
+Pasemos ahora a su análisis descriptivo. 
 
 ## Estacionalidad
 
@@ -104,25 +219,28 @@ legend("topright", legend=c("Tarde", "Mañana"), lty=1, col=c("blue", "green"))
 
 Como era de esperar, hay una **diferencia bastante grande entre el consumo durante los días de semana y fin de semana**. 
 
-Sin embargo, como se puede ver en los gráficos a continuación, esta diferencia **solo se observa en el periodo de tarde**. Creemos que esto es así porque, como decíamos en el apartado anterior, la mayor parte de las horas de clase están incluidas en el periodo de tarde. Y además es en este periodo donde se usan más intensivamente algunas instalaciones (ej. iluminación). Por tanto, el efecto de la ausencia de alumnos durante fin de semana se nota más en el periodo de tarde. 
+Sin embargo, como se puede ver en los gráficos a continuación, 
+esta diferencia **solo se observa en el periodo de tarde**. 
+Creemos que esto es así porque, como decíamos en el apartado anterior, 
+la mayor parte de las horas de clase están incluidas en el periodo de tarde. 
+Y además es en este periodo donde se usan más intensivamente algunas instalaciones 
+(ej. iluminación). 
+Por tanto, el efecto de la ausencia de alumnos durante fin de semana 
+se nota más en el periodo de tarde. 
 
 * Mañana: corresponde a la potencia acumulada desde la 1 ó 2 AM (depende del momento del año), hasta las 1 ó 2 PM (0h-12h UTC)
 
 * Tarde: corresponde a la potencia acumulada desde la 1 ó 2 PM (depende del momento del año), hasta la 1 ó 2 AM (12h-24h UTC)
 
-Como se observa en el gráfico a continuación, el consumo es consistentemente mayor en el periodo de tarde. Posibles explicaciones para este fenómeno son:
-
-* El periodo de tarde comprende más horas de clase (si entendemos que puede haber clase entre las 9.00 y las 21.00), que es cuando más alumnos hay y por tanto cuando hay un mayor uso de las instalaciones
-
-* Algunas instalaciones tienen un uso más intensivo a partir de la 1pm / 2pm. Por ejemplo la iluminación en invierno y el A/C en verano (porque las horas de la mañana son más frescas). También la cafetería (que puede que sea responsable de una buena parte del consumo por los electrodomésticos para cocinar, y lavar vajillas)
-
 Veamos la diferencia entre semana y fin de semana en el periodo de tarde:
 
 ```{r, fig.height = 6, fig.width = 12, fig.align = "center"}
+# Construimos unos vectores para poder filtrar el fin de semana y los laborables
+# lunes a viernes
 weekend <- t$wday %in% c(0, 6)
 weekday <- weekend == F
 plot(t[tarde & weekday], VA[tarde & weekday], type="l", 
-     main = "Potencia activa acumulada de 1PM a 1AM [kVA]", 
+     main = "Potencia activa acumulada tardes (12 a 24h UTC) por fin de semana y L-V [kVA]", 
      col = "blue", xaxt = "n", yaxt = "n", 
      ylab = "", xlab = "")
 lines(t[tarde & weekend], VA[tarde & weekend], col = "green")
@@ -135,21 +253,26 @@ legend("topright", legend=c("Semana", "Fin de semana"), lty=1, col=c("blue", "gr
 Y en el periodo de mañana:
 
 ```{r, fig.height = 6, fig.width = 12, fig.align = "center"}
-plot(t[manana & weekday], VA[manana & weekday], type="l",main = "Potencia activa acumulada 12 horas de 1AM a 1PM", col="blue", xaxt="n", yaxt="n", 
-     ylab="VA", xlab="t")
+plot(t[manana & weekday], VA[manana & weekday], type="l",
+     main = "Potencia activa acumulada mañana (00 a 12 h UTC) por fn de semana y L-V [kVA]", 
+     col="blue", xaxt="n", yaxt="n", 
+     ylab="", xlab="")
 lines(t[manana & weekend], VA[manana & weekend],col="green")
-axis.POSIXct(1,at=seq(min(t), max(t), by="months"), format="%b-%y")
-yticks <- seq(min(VA), max(VA), length.out=10)
-axis(2, at=yticks, labels=formatC(yticks, format="e", digits = 1))
+axis.POSIXct(1,at=seq(min(t), max(t), by="months"), format="%b-%y", las = 1)
+yticks <- seq(min(VA), max(VA[manana & weekday]), length.out=10)
+axis(2, at=yticks, labels=formatC(yticks / 1000, format="f", digits = 1), las = 2)
 legend("topright", legend=c("Semana", "Fin de semana"), lty=1, col=c("blue", "green"))
 ```
+
 En el periodo de mañana, no hay mucha diferencia. posiblemente por las razones comentadas arriba.
 
-Además, como se ve en el gráfico de abajo, en el periodo de tarde, aunque hay una clara diferencia entre semana y fin de semana, ambos consumos evolucionan a la par durante el año (excepto en el periodo pandemia). Por lo que hay **un ratio más o menos constante entre el consumo en fin de semana y en semana** (en el caso del periodo de mañana ese ratio es ~1).
+Además, como se ve en el gráfico de abajo, en el periodo de tarde, aunque hay una clara diferencia entre semana y fin de semana, ambos consumos evolucionan a la par durante el año (excepto en el periodo pandemia). 
+Por lo que hay **un ratio más o menos constante entre el consumo en fin de semana y en semana** 
+(en el caso del periodo de mañana ese ratio es ~1).
 
-Nota: las dos caídas grandes en enero de 2020 y de 2021 se deben a que las semana final dle año y la de inicio del siguiente año no son completas.
+Nota: las dos caídas grandes en enero de 2020 y de 2021 se deben a que las semana final del año y la de inicio del siguiente año no son completas.
 
-```{r}
+```{r, fig.height = 6, fig.width = 12, fig.align = "center"}
 num_semana = data.frame(week=strftime(t,format="%W"))
 datef= data.frame(date=strftime(t,format="%Y-%d-%d"))
 year = data.frame(year=strftime(t,format="%Y"))
@@ -160,7 +283,9 @@ VA_agg$date <- as.Date((c(VA_agg$week) - 1)*7 + (c(VA_agg$year) - 1)*365, origin
 VA_tarde_semana = VA_agg[(VA_agg$tarde==TRUE & VA_agg$weekday==TRUE), ]
 VA_tarde_finsemana = VA_agg[(VA_agg$tarde==TRUE & VA_agg$weekday==FALSE), ]
 
-plot(VA_tarde_semana$date, VA_tarde_semana$x/VA_tarde_semana$x[1], type="l",main = "Potencia activa acumulada relativa al inicio de la serie", col="blue", xaxt="n", ylab="1 = Consumo al inicio de abril 2019", xlab="t")
+plot(VA_tarde_semana$date, VA_tarde_semana$x/VA_tarde_semana$x[1], type="l",
+     main = "Potencia activa acumulada relativa al inicio de la serie", 
+     col="blue", xaxt="n", ylab="1 = Consumo al inicio de abril 2019", xlab="")
 lines(VA_tarde_finsemana$date, VA_tarde_finsemana$x/VA_tarde_finsemana$x[1],col="green")
 axis.Date(1,at=seq(min(VA_agg$date), max(VA_agg$date), by="months"), format="%b-%y")
 legend("topright", legend=c("Semana tarde", "Fin de semana tarde"), lty=1, col=c("blue", "green"))
@@ -169,7 +294,8 @@ legend("topright", legend=c("Semana tarde", "Fin de semana tarde"), lty=1, col=c
 
 ### Estacionalidad intra-año
 
-Si visualizaos los tres años de datos con la misma referencia temporal. Se observa una claro estacionalidad intra-año, como era de esperar.
+Si visualizamos los tres años de datos con la misma referencia temporal, 
+se observa una clara estacionalidad intra-año, como era de esperar.
 
 
 ```{r}
@@ -177,7 +303,10 @@ VA_aggr2 = aggregate(VA, by=c(num_semana, year), FUN=sum)
 VA2019 = VA_aggr2[(VA_aggr2$year == 2019),]
 VA2020 = VA_aggr2[(VA_aggr2$year == 2020),]
 VA2021 = VA_aggr2[(VA_aggr2$year == 2021),]
-plot(c(VA2020$week), VA2020$x, type="l",main = "Potencia activa por año", col="green", ylab="VA", xlab="Número de semana", ylim=c(min(VA2021$x),max(VA2019$x)))
+plot(c(VA2020$week), VA2020$x, type="l",
+     main = "Potencia activa por año", 
+     col="green", ylab="VA", xlab="Número de semana", 
+     ylim=c(min(VA2021$x),max(VA2019$x)))
 lines(VA2019$week, VA2019$x,col="blue")
 lines(VA2021$week, VA2021$x,col="red")
 legend("topright", legend=c("2019", "2020", "2021"), lty=1, col=c("blue", "green", "red"))
@@ -191,29 +320,33 @@ Consideramos que no disponemos de una longitud suficiente como para analizar nin
 
 ### Componente cíclico
 
-Observando los datos y el contexto, creemos que en la serie se distingue claramente el impacto de la pandemia. Sobre todo en los meses de marzo - julio de 2020, pero también en lo que resta de 2020 y 2021. 
+Observando los datos y el contexto, creemos que en la serie se distingue claramente el impacto de la pandemia. 
+Sobre todo en los meses de marzo - julio de 2020, pero también en lo que resta de 2020 y 2021. 
 
 Podríamos definir tres ciclos:
 
 * "Business as usual (BAU)": periodos en los que no se aprecia ningún fenómeno cíclico que impacte en el consumo de energía (abril 2019 - febrero 2020; enero 2021 - marzo 2021)
-* "Pandemia": periodos en los que el consumo ha caido en picado debido al confinamiento (marzo - julio 2020)
+* "Pandemia": periodos en los que el consumo ha caído en picado debido al confinamiento (marzo - julio 2020)
 * "Estado de alarma": periodos en los que el consumo es mayor que durante el confinamiento pero menor que en BAU por las restricciones (agosto 2020 - diciembre 2020). Para afirmar a ciencia cierta esto último, necesitaríamos una serie más larga. Pues ahora mismo no podemos confirmar que el consumo en 2021 sea igual al de BAU (aunque los primeros meses es igual que en el 2020 pre-pandemia)   
 
 ### Componente estocástico
 
-Este dcomponente corresponde a la variación del consumo eléctrico debida a cuestiones aleatorias o pseudo-aleatorias como la temperatura concreta de un día, el número de alumnos que asisten al centro, etc. Es más complejo de modelar.
+Este componente corresponde a la variación del consumo eléctrico debido a 
+cuestiones aleatorias o pseudo-aleatorias como la temperatura concreta de un día, 
+el número de alumnos que asisten al centro, etc. 
+Es más complejo de modelar.
 
 # Ajuste de un modelo para predicciones
 
 Como resultado del análisis anterior, decidimos que:
 
-* El modelo que es más util ajustar de cara al futuro es que corresponde al ciclo BAU. Como tenemos un año completo de BAU, cogemos los periodos correspondientes.
+* El modelo que es más útil ajustar de cara al futuro es que corresponde al ciclo BAU. Como tenemos un año completo de BAU, cogemos los periodos correspondientes.
 
-* Hemos visto que hay estacionalidad intra-dia, intra-semana e intra-anual. Para lidiar con la estacionalidad intra-dia e intra-semana, eliminamos su impacto usando una **rolling average** que se expande 14 periodos (i.e. una seman de datos)
+* Hemos visto que hay estacionalidad intra-dia, intra-semana e intra-anual. Para lidiar con la estacionalidad intra-dia e intra-semana, eliminamos su impacto usando una **rolling average** que se expande 14 periodos (i.e. una semana de datos)
 
-* La estacionalidad intra-anual la vamos a modelar ajustando un modelo quadrático, pero además vamos a incluir variables **"dummy" que capturen las diferencias de cada mes**. Aplicamos una **rolling average** a las dummies para suavizar su efecto (que además es más realista, porque no hay cambios súbitos de las condiciones entre el 31 de mayo y el 1 de junio, por ejemplo)
+* La estacionalidad intra-anual la vamos a modelar ajustando un modelo quadrático, pero además vamos a incluir variables **"dummy" que capturen las diferencias de cada mes**. Aplicamos una **rolling average** a las *dummies* para suavizar su efecto (que además es más realista, porque no hay cambios súbitos de las condiciones entre el 31 de mayo y el 1 de junio, por ejemplo)
 
-* Además, dado el claro impacto de las vacaciones, usamos una **variable dummy para modelar los periodos de vacaciones** de navidad, s.santa y verano
+* Además, dado el claro impacto de las vacaciones, usamos una **variable dummy para modelar los periodos de vacaciones** de navidad, semana santa y verano
 
 
 ```{r}
@@ -224,22 +357,22 @@ t_BAU = t[t$year == 119 | (t$year == 120 & (t$mon < 2)) | (t$year == 121 & (t$mo
 t_BAU = t_BAU[1:728] # 52 semanas justas
 nday = strftime(t_BAU,format="%j")
 VA_BAU = VA_BAU[order(nday)]
-VA_BAU_avg<-filter(VA_BAU,filter=rep(1/14,14), circular = TRUE)
+VA_BAU_avg <- filter(VA_BAU, filter = rep(1/14,14), circular = TRUE)
 day_month = as.Date(rep(c(1:364),each=2), origin = "2020/12/31") # El año nos da igual
 plot(day_month, VA_BAU_avg, type="l")
 ```
 ```{r}
 #Creación de las dummies
 vacaciones_dummy_avg = (VA_BAU_avg < 10e5)*1
-vacaciones_dummy_avg<-filter(vacaciones_dummy_avg,filter=rep(1/14,14), circular = TRUE)
+vacaciones_dummy_avg <- filter(vacaciones_dummy_avg, filter = rep(1/14,14), circular = TRUE)
 
 month_avg = as.integer(strftime(day_month,format="%m"))
-m1_dummy_avg = (month_avg == 1)*1; m1_dummy_avg = filter(m1_dummy_avg,filter=rep(1/14,14), circular = TRUE)
-m3_dummy_avg = (month_avg == 3)*1; m3_dummy_avg = filter(m3_dummy_avg,filter=rep(1/14,14), circular = TRUE)
-m5_dummy_avg = (month_avg == 5)*1; m5_dummy_avg = filter(m5_dummy_avg,filter=rep(1/14,14), circular = TRUE)
-m7_dummy_avg = (month_avg == 7)*1; m7_dummy_avg = filter(m7_dummy_avg,filter=rep(1/14,14), circular = TRUE)
-m9_dummy_avg = (month_avg == 9)*1; m9_dummy_avg = filter(m9_dummy_avg,filter=rep(1/14,14), circular = TRUE)
-m11_dummy_avg = (month_avg == 11)*1; m11_dummy_avg = filter(m11_dummy_avg,filter=rep(1/14,14), circular = TRUE)
+m1_dummy_avg = (month_avg == 1)*1; m1_dummy_avg = filter(m1_dummy_avg, filter=rep(1/14,14), circular = TRUE)
+m3_dummy_avg = (month_avg == 3)*1; m3_dummy_avg = filter(m3_dummy_avg, filter=rep(1/14,14), circular = TRUE)
+m5_dummy_avg = (month_avg == 5)*1; m5_dummy_avg = filter(m5_dummy_avg, filter=rep(1/14,14), circular = TRUE)
+m7_dummy_avg = (month_avg == 7)*1; m7_dummy_avg = filter(m7_dummy_avg, filter=rep(1/14,14), circular = TRUE)
+m9_dummy_avg = (month_avg == 9)*1; m9_dummy_avg = filter(m9_dummy_avg, filter=rep(1/14,14), circular = TRUE)
+m11_dummy_avg = (month_avg == 11)*1; m11_dummy_avg = filter(m11_dummy_avg, filter=rep(1/14,14), circular = TRUE)
 ```
 
 
@@ -249,10 +382,10 @@ m11_dummy_avg = (month_avg == 11)*1; m11_dummy_avg = filter(m11_dummy_avg,filter
 # AVERAGE
 t = rep(c(1:364),each=2)
 t2=t^2;t3=t^3;t4=t^4;t5=t^5;t6=t^6;t8=t^8;t10=t^10;t12=t^12;t14=t^14;t16=t^16
-quadraticmodel<-lm(VA_BAU_avg~t+t2+t3+t4+t5+t6+t8+t10+t12+t14+t16+
+quadraticmodel <- lm(VA_BAU_avg~t+t2+t3+t4+t5+t6+t8+t10+t12+t14+t16+
                      vacaciones_dummy_avg+m1_dummy_avg+m3_dummy_avg+m5_dummy_avg+m7_dummy_avg+m9_dummy_avg+m11_dummy_avg)
-plot(day_month,VA_BAU_avg,type="l",main = "Potencia activa", ylab="va")
-lines(day_month,quadraticmodel$fit, col=2, lwd=2)
+plot(day_month, VA_BAU_avg, type="l", main = "Potencia activa", ylab="va")
+lines(day_month, quadraticmodel$fit, col=2, lwd=2)
 ```
 
 Así, si quisieramos un modelo que nos permitiera predecir el valor de cada punto con la granularidad de los datos (i.e. día del año + periodo tarde/mañana), usaríamos la siguiente parametrización:
@@ -274,7 +407,10 @@ Los coeficientes $\beta_{i}$ se podrían calcular ajustando otro modelo o simple
 
 ## Test
 
-Como periodo de test cogemos los meses de enero - febrero 2021, que son dos meses que no hemos usado para crear el modelo, qye se corresponden con un ciclo BAU (aunque como decíamos antes, esta última afirmación no tenemos datos suficientes para asegurarla).
+Como periodo de test cogemos los meses de enero - febrero 2021, 
+que son dos meses que no hemos usado para crear el modelo, 
+que se corresponden con un ciclo BAU (aunque como decíamos antes, 
+esta última afirmación no tenemos datos suficientes para asegurarla).
 
 
 ```{r}
@@ -298,23 +434,21 @@ m11_dummy_avg = m11_dummy_avg[1:idx]
 vacaciones_dummy_avg = vacaciones_dummy_avg[1:idx]
 testdata = data.frame(t,t2,t3,t4,t5,t6,t8,t10,t12,t14,t16,vacaciones_dummy_avg,m1_dummy_avg,m3_dummy_avg,m5_dummy_avg,
                       m7_dummy_avg,m9_dummy_avg,m11_dummy_avg)
-VA_BAU_test_pred = predict(quadraticmodel,testdata)
+VA_BAU_test_pred = predict(quadraticmodel, testdata)
 day_month = as.Date(t, origin = "2020/12/31") # El año nos da igual
 plot(day_month,VA_BAU_test_pred,type="l",col="blue",ylim=c(min(VA_BAU_test_pred),max(VA_BAU_test_avg)))
 lines(day_month,VA_BAU_test_avg,col="red")
 legend("topright", legend=c("Actual", "Predicted"), lty=1, col=c("red", "blue"))
 ```
-Veamos el error. Usamos los errores absolutos (en porcentajey en desviación absoluta) porque nos parecen más interpretables que los cuadrados.
+
+Veamos el error. Usamos los errores absolutos (en porcentaje y en desviación absoluta) 
+porque nos parecen más interpretables que los cuadrados.
 
 ```{r}
 sum(abs((VA_BAU_test_pred-VA_BAU_test_avg)/VA_BAU_test_avg))/idx*100 #MAPE
-sum(abs((VA_BAU_test_pred-VA_BAU_test_avg)))/idx*100 #MADE
+sum(abs((VA_BAU_test_pred-VA_BAU_test_avg)))/idx #MAD
 ```
-La desviación media es del 5.8%. No está mal!
+La desviación media es del 5.8%. No está mal! 
 
 
-
-
-
-
-
+$\blacksquare$
